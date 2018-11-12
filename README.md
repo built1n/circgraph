@@ -23,10 +23,9 @@ g++ main.cpp -o circgraph
 
 ```
 <source_node> <sink_node>
-<node1> [<neighbor1> <resistance2>]...
-<node2>
+<node1> <node 2> <weight>
+<node1> <node 2> <weight>
 ...
-<noden>
 ```
 
-See the `testX.txt` files for more.
+See the `testX.txt` files for examples.

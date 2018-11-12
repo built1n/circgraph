@@ -28,6 +28,7 @@ struct edge {
 };
 
 struct node {
+    string name;
     vector<edge> neighbors;
 };
 
@@ -135,6 +136,15 @@ node &insert_node(map<int, node> &graph, int id)
     node new_node;
     map<int, node>::iterator it = graph.insert(pair<int, node>(id, new_node)).first;
     return it->second;
+}
+
+node &insert_node_if_new(map<int, node> &graph, int id)
+{
+    map<int, node>::iterator it = graph.find(id);
+    if(it == graph.end())
+        return insert_node(graph, id);
+    else
+        return it->second;
 }
 
 void erase_edges(map<int, node> &graph, int id_a, int id_b)
@@ -398,34 +408,57 @@ double simp_graph(map<int,node> &graph, int s, int t)
     return graph[s].neighbors[0].weight;
 }
 
+int get_node_id(map<string, int> &names, string name, int &counter)
+{
+    const map<string, int>::const_iterator it = names.find(name);
+    if(it == names.end())
+        return names[name] = counter++;
+    else
+        return it->second;
+}
+
 int main()
 {
     /* construct graph from adjacency list */
     map<int, node> graph;
     string line;
-    int s, t;
-    cin >> s >> t;
+    map<string, int> names;
+    string s, t;
+
+    getline(cin, line);
+    stringstream ss(line);
+    ss >> s >> t;
+
+    cerr << "Source and sink are " << s << ", " << t << endl;
+
+    int id_counter = 1;
 
     while(getline(cin, line))
     {
-        stringstream ss(line);
+        ss = stringstream(line);
 
-        int node_id;
-        struct node n;
-        ss >> node_id;
+        double weight;
+        string a, b;
+        ss >> a >> b >> weight;
 
-        struct edge e;
-        while(ss >> e.id && ss >> e.weight)
-        {
-            cerr << "Adding neighbor " << e.id << " with weight " << e.weight << endl;
+        int id_a, id_b;
+        id_a = get_node_id(names, a, id_counter);
+        id_b = get_node_id(names, b, id_counter);
 
-            n.neighbors.push_back(e);
-        }
+        insert_node_if_new(graph, id_a);
+        insert_node_if_new(graph, id_b);
 
-        graph.insert(std::pair<int, node>(node_id, n));
+        graph[id_a].name = a;
+        graph[id_b].name = b;
+
+        insert_edge(graph, id_a, id_b, weight);
     }
 
-    double eq = simp_graph(graph, s, t);
+    int id_s, id_t;
+    id_s = names.at(s);
+    id_t = names.at(t);
+
+    double eq = simp_graph(graph, id_s, id_t);
 
     cerr << "Equivalent resistance: " << eq << endl;
 }

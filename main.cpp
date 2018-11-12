@@ -1,3 +1,17 @@
+/*
+ * circgraph: a program for simplifying circuits
+ *
+ * Copyright (C) 2018 Franklin Wei
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+ * KIND, either express or implied.
+ */
+
 #include <iostream>
 #include <map>
 #include <queue>
@@ -42,6 +56,17 @@ double combine_s(double a, double b)
 double combine_p(double a, double b)
 {
     return 1 / ( 1 / a + 1 / b );
+}
+
+double combine_ydelta(double adj1, double adj2, double opp)
+{
+    double p = adj1 * adj2 + adj1 * opp + adj2 * opp;
+    return p / opp;
+}
+
+double combine_deltay(double adj1, double adj2, double opp)
+{
+    return adj1 * adj2 / ( adj1 + adj2 + opp );
 }
 
 void dump_graph(map<int, node> graph)
@@ -89,12 +114,6 @@ int count_edges(node &n, int id)
     return count;
 }
 
-double combine_ydelta(double w1, double w2, double w3, double opp)
-{
-    double p = w1 * w2 + w1 * w3 + w2 * w3;
-    return p / opp;
-}
-
 void insert_edge(map<int, node> &graph, int id_a, int id_b, double weight)
 {
     cerr << "Inserting edge " << id_a << "-" << id_b << endl;
@@ -109,6 +128,13 @@ void insert_edge(map<int, node> &graph, int id_a, int id_b, double weight)
 
     a.neighbors.push_back(ab);
     b.neighbors.push_back(ba);
+}
+
+node &insert_node(map<int, node> &graph, int id)
+{
+    node new_node;
+    map<int, node>::iterator it = graph.insert(pair<int, node>(id, new_node)).first;
+    return it->second;
 }
 
 void erase_edges(map<int, node> &graph, int id_a, int id_b)
@@ -134,9 +160,9 @@ void do_ydelta(map<int, node> &graph, int node_id)
         w2 = n.neighbors[1].weight,
         w3 = n.neighbors[2].weight;
 
-    double wa = combine_ydelta(w1, w2, w3, w1);
-    double wb = combine_ydelta(w1, w2, w3, w2);
-    double wc = combine_ydelta(w1, w2, w3, w3);
+    double wa = combine_ydelta(w2, w3, w1);
+    double wb = combine_ydelta(w1, w3, w2);
+    double wc = combine_ydelta(w1, w2, w3);
 
     /* add delta edges */
     insert_edge(graph, n.neighbors[1].id, n.neighbors[2].id, wa);
@@ -153,30 +179,21 @@ void do_ydelta(map<int, node> &graph, int node_id)
     n.neighbors.clear();
 }
 
-double combine_deltay(double w1, double w2, double w3, double adj1, double adj2)
-{
-    return adj1 * adj2 / ( w1 + w2 + w3 );
-}
-
 void do_deltay(map<int, node> &graph, int id_a, int id_b, int id_c)
 {
-    node &a = graph[id_a], &b = graph[id_b], &c = graph[id_c];
+    node &a = graph[id_a], &b = graph[id_b];
 
     double wa = find_edge(b, id_c)->weight;
     double wb = find_edge(a, id_c)->weight;
     double wc = find_edge(a, id_b)->weight;
 
-    double w1 = combine_deltay(wa, wb, wc, wb, wc);
-    double w2 = combine_deltay(wa, wb, wc, wa, wc);
-    double w3 = combine_deltay(wa, wb, wc, wa, wb);
+    double w1 = combine_deltay(wb, wc, wa);
+    double w2 = combine_deltay(wa, wc, wb);
+    double w3 = combine_deltay(wa, wb, wc);
 
     int id_d = graph.rbegin()->first + 1;
 
-    node new_node;
-    map<int, node>::iterator it = graph.insert(pair<int, node>(id_d, new_node)).first;
-
-    /* stupid hack */
-    node &d = graph[id_d];
+    insert_node(graph, id_d);
 
     insert_edge(graph, id_a, id_d, w1);
     insert_edge(graph, id_b, id_d, w2);
@@ -368,7 +385,7 @@ bool simp_iter(map<int,node> &graph, int s, int t, bool ydelta, bool deltay)
 }
 
 /* source, sink */
-void simp_graph(map<int,node> &graph, int s, int t)
+double simp_graph(map<int,node> &graph, int s, int t)
 {
     dump_dot(graph);
 
@@ -377,6 +394,8 @@ void simp_graph(map<int,node> &graph, int s, int t)
         /* iterate over nodes in a breadth-first fashion */
         simp_iter(graph, s, t, true, true);
     }
+
+    return graph[s].neighbors[0].weight;
 }
 
 int main()
@@ -406,7 +425,7 @@ int main()
         graph.insert(std::pair<int, node>(node_id, n));
     }
 
-    simp_graph(graph, s, t);
+    double eq = simp_graph(graph, s, t);
 
-    cerr << "Equivalent resistance: " << graph[s].neighbors[0].weight << endl;
+    cerr << "Equivalent resistance: " << eq << endl;
 }

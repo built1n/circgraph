@@ -32,20 +32,45 @@ struct node {
     vector<edge> neighbors;
 };
 
-bool is_done(map<int, node> graph, int s, int t)
+vector<edge>::iterator find_edge(node &n, int id)
 {
-    return graph[s].neighbors.size() == 1 &&
-        graph[s].neighbors[0].id == t &&
-        graph[t].neighbors.size() == 1 &&
-        graph[t].neighbors[0].id == s;
+    for(vector<edge>::iterator it = n.neighbors.begin(); it != n.neighbors.end(); it++)
+        if(it->id == id)
+            return it;
+    return n.neighbors.end();
 }
 
-bool is_ynode(node &n)
+bool is_doubly_connected(map<int, node> &graph, int a, int b)
 {
+    return find_edge(graph[a], b) != graph[a].neighbors.end() &&
+        find_edge(graph[b], a) != graph[b].neighbors.end();
+}
+
+int count_edges(node &n, int id)
+{
+    int count = 0;
+    for(vector<edge>::iterator it = n.neighbors.begin(); it != n.neighbors.end(); it++)
+        if(it->id == id)
+            count++;
+    return count;
+}
+
+bool is_one_double_edge(map<int, node> graph, int s, int t)
+{
+    return is_doubly_connected(graph, s, t) &&
+        count_edges(graph[s], t) == 1;
+}
+
+bool is_ynode(map<int, node> &graph, int id)
+{
+    node &n = graph[id];
     return n.neighbors.size() == 3 &&
         n.neighbors[0].id != n.neighbors[1].id &&
         n.neighbors[1].id != n.neighbors[2].id &&
-        n.neighbors[0].id != n.neighbors[2].id;
+        n.neighbors[0].id != n.neighbors[2].id &&
+        is_doubly_connected(graph, id, n.neighbors[0].id) &&
+        is_doubly_connected(graph, id, n.neighbors[1].id) &&
+        is_doubly_connected(graph, id, n.neighbors[2].id);
 }
 
 double combine_s(double a, double b)
@@ -84,40 +109,25 @@ void dump_graph(map<int, node> graph)
 
 void dump_dot(map<int, node> graph)
 {
-    cout << "digraph a {" << endl;
+    cout << "graph a {" << endl;
     for(map<int, node>::iterator it = graph.begin(); it != graph.end(); it++)
     {
         //cerr << "Node " << it->first << ": ";
         struct node &e = it->second;
         for(vector<edge>::iterator j = e.neighbors.begin(); j != e.neighbors.end(); j++)
         {
-            cout << it->first << " -> " <<  j->id << " [label=\"" << j->weight << "\"];" << endl;
+            //cout << graph[it->first].name << " -> " <<  graph[j->id].name << " [label=\"" << j->weight << "\"];" << endl;
+            if(is_doubly_connected(graph, it->first, j->id))
+                cout << it->first << " -- " << j->id << " [label=\"" << j->weight << "\"];" << endl;
         }
         //cerr << endl;
     }
     cout << "}" << endl;
 }
 
-vector<edge>::iterator find_edge(node &n, int id)
-{
-    for(vector<edge>::iterator it = n.neighbors.begin(); it != n.neighbors.end(); it++)
-        if(it->id == id)
-            return it;
-    return n.neighbors.end();
-}
-
-int count_edges(node &n, int id)
-{
-    int count = 0;
-    for(vector<edge>::iterator it = n.neighbors.begin(); it != n.neighbors.end(); it++)
-        if(it->id == id)
-            count++;
-    return count;
-}
-
 void insert_edge(map<int, node> &graph, int id_a, int id_b, double weight)
 {
-    cerr << "Inserting edge " << id_a << "-" << id_b << endl;
+    //cerr << "Inserting edge " << id_a << "-" << id_b << endl;
     node &a = graph[id_a], &b = graph[id_b];
 
     edge ab, ba;
@@ -149,7 +159,7 @@ node &insert_node_if_new(map<int, node> &graph, int id)
 
 void erase_edges(map<int, node> &graph, int id_a, int id_b)
 {
-    cerr << "Erasing edges " << id_a << "-" << id_b << endl;
+    //cerr << "Erasing edges " << id_a << "-" << id_b << endl;
     node &a = graph[id_a], &b = graph[id_b];
 
     vector<edge>::iterator it;
@@ -204,6 +214,7 @@ void do_deltay(map<int, node> &graph, int id_a, int id_b, int id_c)
     int id_d = graph.rbegin()->first + 1;
 
     insert_node(graph, id_d);
+    //graph[id_d].name = "Ynode";
 
     insert_edge(graph, id_a, id_d, w1);
     insert_edge(graph, id_b, id_d, w2);
@@ -257,7 +268,7 @@ bool do_p_transforms(map<int, node> &graph, int node_id, int other_node = -1)
 
 /* ydelta and deltay control whether the Y->delta and delta->Y
  * transforms are performed, respectively */
-bool simp_iter(map<int,node> &graph, int s, int t, bool ydelta, bool deltay)
+pair<bool, int> simp_iter(map<int,node> &graph, int s, int t, bool ydelta, bool deltay)
 {
     bool progress = false;
 
@@ -266,6 +277,8 @@ bool simp_iter(map<int,node> &graph, int s, int t, bool ydelta, bool deltay)
     set<int> open;
     open.insert(s);
 
+    int t_visited = 0;
+
     while(open.size())
     {
         for(set<int>::iterator i = open.begin(); i != open.end();)
@@ -273,7 +286,10 @@ bool simp_iter(map<int,node> &graph, int s, int t, bool ydelta, bool deltay)
             int id_a = *i;
             node &a = graph[id_a];
 
-            //cerr << "Visiting node " << id_a << endl;
+            cerr << "Visiting node " << id_a << endl;
+
+            if(id_a == t)
+                t_visited++;
 
             vector<edge> &neighbors = a.neighbors;
 
@@ -289,7 +305,7 @@ bool simp_iter(map<int,node> &graph, int s, int t, bool ydelta, bool deltay)
                 /* get the connected node */
                 node &b = graph[ed_ab.id];
 
-                //cerr << "Connected node " << ed_ab.id << " has " << b.neighbors.size() << " emanating edges." << endl;
+                cerr << "Connected node " << ed_ab.id << " has " << b.neighbors.size() << " emanating edges." << endl;
 
                 /* perform S transform */
                 if(id_b != s && id_b != t &&
@@ -300,27 +316,30 @@ bool simp_iter(map<int,node> &graph, int s, int t, bool ydelta, bool deltay)
                     edge &ed_bc = b.neighbors[0].id == id_a ? b.neighbors[1] : b.neighbors[0];
                     int id_c = ed_bc.id;
 
-                    cerr << "Performing S-transform on edges " << id_a << "-" << id_b << "-" << id_c << endl;
+                    if(is_doubly_connected(graph, id_b, id_c))
+                    {
+                        cerr << "Performing S-transform on edges " << id_a << "-" << id_b << "-" << id_c << endl;
 
-                    /* note that we have to do the replacement on both
-                     * nodes, because edges are directed */
-                    double new_weight = combine_s(ed_ab.weight, ed_bc.weight);
+                        /* note that we have to do the replacement on both
+                         * nodes, because edges are directed */
+                        double new_weight = combine_s(ed_ab.weight, ed_bc.weight);
 
-                    ed_ab.id = id_c;
-                    ed_ab.weight = new_weight;
+                        ed_ab.id = id_c;
+                        ed_ab.weight = new_weight;
 
-                    node &c = graph[ed_bc.id];
+                        node &c = graph[ed_bc.id];
 
-                    /* find the edge that goes to node b (with id_b) */
-                    edge &ed_cb = *find_edge(c, id_b);
+                        /* find the edge that goes to node b (with id_b) */
+                        edge &ed_cb = *find_edge(c, id_b);
 
-                    ed_cb.id = id_a;
-                    ed_cb.weight = new_weight;
+                        ed_cb.id = id_a;
+                        ed_cb.weight = new_weight;
 
-                    /* node B becomes an orphan node */
-                    dump_dot(graph);
+                        /* node B becomes an orphan node */
+                        dump_dot(graph);
 
-                    progress = true;
+                        progress = true;
+                    }
                 }
 
                 /* Don't mark if already visited */
@@ -336,7 +355,7 @@ bool simp_iter(map<int,node> &graph, int s, int t, bool ydelta, bool deltay)
             if(ydelta)
             {
                 /* Try the Y->delta transform */
-                if(id_a != s && id_a != t && is_ynode(a))
+                if(id_a != s && id_a != t && is_ynode(graph, id_a))
                 {
                     cerr << "Performing Y-delta transform on node " << id_a << endl;
 
@@ -368,7 +387,7 @@ bool simp_iter(map<int,node> &graph, int s, int t, bool ydelta, bool deltay)
                         int id_c = a.neighbors[j].id;
 
                         node &b = graph[id_b];
-                        if(find_edge(b, id_c) != b.neighbors.end() &&
+                        if(is_doubly_connected(graph, id_b, id_c) &&
                            count_edges(b, id_c) == 1)
                         {
                             cerr << "Performing delta-Y transform on " << id_a << ", " << id_b << ", " << id_c << endl;
@@ -391,18 +410,28 @@ bool simp_iter(map<int,node> &graph, int s, int t, bool ydelta, bool deltay)
         }
     }
 
-    return progress;
+    return pair<bool, int>(progress, t_visited);
 }
 
 /* source, sink */
 double simp_graph(map<int,node> &graph, int s, int t)
 {
-    dump_dot(graph);
+    int t_visited = 0;
 
-    while(!is_done(graph, s, t))
+    /* Need to refine this termination condition. There must be
+     * exactly one path between s and t... the current condition isn't
+     * sufficient. */
+
+    while(!(is_one_double_edge(graph, s,t) && t_visited == 1))
     {
         /* iterate over nodes in a breadth-first fashion */
-        simp_iter(graph, s, t, true, true);
+        pair<bool, int> ret = simp_iter(graph, s, t, true, false);
+        t_visited = ret.second;
+        if(!ret.first)
+        {
+            cerr << "Making no progress, saw t " << t_visited << " times." << endl;
+            return 0;
+        }
     }
 
     return graph[s].neighbors[0].weight;
@@ -445,6 +474,9 @@ int main()
         id_a = get_node_id(names, a, id_counter);
         id_b = get_node_id(names, b, id_counter);
 
+        if(id_a == id_b)
+            cerr << "WARNING: Self-loop!" << endl;
+
         insert_node_if_new(graph, id_a);
         insert_node_if_new(graph, id_b);
 
@@ -457,6 +489,8 @@ int main()
     int id_s, id_t;
     id_s = names.at(s);
     id_t = names.at(t);
+
+    dump_dot(graph);
 
     double eq = simp_graph(graph, id_s, id_t);
 

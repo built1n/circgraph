@@ -14,6 +14,15 @@ int main(int argc, char *argv[])
     srand(time(0));
 
     printf("a b\n");
+    printf("a b 1\n");
     for(int i = 0; i < edges; i++)
-        printf("%c %c 1\n", 'a' + rand() % 26, 'a' + rand() % 26);
+    {
+        char a, b;
+        a = rand() % 26;
+        do {
+            b = rand() % 26;
+        } while(b == a);
+
+        printf("%c %c 1\n", 'a' + a, 'a' + b);
+    }
 }

@@ -21,10 +21,12 @@ g++ main.cpp -o circgraph
 
 `circgraph` takes input from stdin in the following format:
 
+```
 <source_node> <sink_node>
 <node1> [<neighbor1> <resistance2>]...
 <node2>
 ...
 <noden>
+```
 
 See the `testX.txt` files for more.

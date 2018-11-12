@@ -80,6 +80,15 @@ vector<edge>::iterator find_edge(node &n, int id)
     return n.neighbors.end();
 }
 
+int count_edges(node &n, int id)
+{
+    int count = 0;
+    for(vector<edge>::iterator it = n.neighbors.begin(); it != n.neighbors.end(); it++)
+        if(it->id == id)
+            count++;
+    return count;
+}
+
 double combine_ydelta(double w1, double w2, double w3, double opp)
 {
     double p = w1 * w2 + w1 * w3 + w2 * w3;
@@ -100,6 +109,20 @@ void insert_edge(map<int, node> &graph, int id_a, int id_b, double weight)
 
     a.neighbors.push_back(ab);
     b.neighbors.push_back(ba);
+}
+
+void erase_edges(map<int, node> &graph, int id_a, int id_b)
+{
+    cerr << "Erasing edges " << id_a << "-" << id_b << endl;
+    node &a = graph[id_a], &b = graph[id_b];
+
+    vector<edge>::iterator it;
+
+    while((it = find_edge(a, id_b)) != a.neighbors.end())
+        a.neighbors.erase(it);
+
+    while((it = find_edge(b, id_a)) != b.neighbors.end())
+        b.neighbors.erase(it);
 }
 
 void do_ydelta(map<int, node> &graph, int node_id)
@@ -130,9 +153,45 @@ void do_ydelta(map<int, node> &graph, int node_id)
     n.neighbors.clear();
 }
 
-void do_p_transforms(map<int, node> &graph, int node_id, int other_node = -1)
+double combine_deltay(double w1, double w2, double w3, double adj1, double adj2)
+{
+    return adj1 * adj2 / ( w1 + w2 + w3 );
+}
+
+void do_deltay(map<int, node> &graph, int id_a, int id_b, int id_c)
+{
+    node &a = graph[id_a], &b = graph[id_b], &c = graph[id_c];
+
+    double wa = find_edge(b, id_c)->weight;
+    double wb = find_edge(a, id_c)->weight;
+    double wc = find_edge(a, id_b)->weight;
+
+    double w1 = combine_deltay(wa, wb, wc, wb, wc);
+    double w2 = combine_deltay(wa, wb, wc, wa, wc);
+    double w3 = combine_deltay(wa, wb, wc, wa, wb);
+
+    int id_d = graph.rbegin()->first + 1;
+
+    node new_node;
+    map<int, node>::iterator it = graph.insert(pair<int, node>(id_d, new_node)).first;
+
+    /* stupid hack */
+    node &d = graph[id_d];
+
+    insert_edge(graph, id_a, id_d, w1);
+    insert_edge(graph, id_b, id_d, w2);
+    insert_edge(graph, id_c, id_d, w3);
+
+    erase_edges(graph, id_a, id_b);
+    erase_edges(graph, id_a, id_c);
+    erase_edges(graph, id_b, id_c);
+}
+
+bool do_p_transforms(map<int, node> &graph, int node_id, int other_node = -1)
 {
     node &a = graph[node_id];
+
+    bool progress = false;
 
     /* perform P transform: O(n^2)? */
     for(vector<edge>::iterator i = a.neighbors.begin(); i < a.neighbors.end(); i++)
@@ -158,14 +217,23 @@ void do_p_transforms(map<int, node> &graph, int node_id, int other_node = -1)
                 /* recurse to handle the opposite direction */
                 do_p_transforms(graph, i->id, node_id);
 
-                dump_dot(graph);
+                if(other_node < 0)
+                    dump_dot(graph);
+
+                progress = true;
             }
         }
     }
+
+    return progress;
 }
 
-void simp_iter(map<int,node> &graph, int s, int t, bool ydelta)
+/* ydelta and deltay control whether the Y->delta and delta->Y
+ * transforms are performed, respectively */
+bool simp_iter(map<int,node> &graph, int s, int t, bool ydelta, bool deltay)
 {
+    bool progress = false;
+
     /* breadth-first search */
     set<int> visited;
     set<int> open;
@@ -178,12 +246,12 @@ void simp_iter(map<int,node> &graph, int s, int t, bool ydelta)
             int id_a = *i;
             node &a = graph[id_a];
 
-            cerr << "Visiting node " << id_a << endl;
+            //cerr << "Visiting node " << id_a << endl;
 
             vector<edge> &neighbors = a.neighbors;
 
             /* First remove duplicate edges with the P transform */
-            do_p_transforms(graph, id_a);
+            progress |= do_p_transforms(graph, id_a);
 
             /* Loop over neighbors */
             for(vector<edge>::iterator j = neighbors.begin(); j < neighbors.end(); j++)
@@ -194,7 +262,7 @@ void simp_iter(map<int,node> &graph, int s, int t, bool ydelta)
                 /* get the connected node */
                 node &b = graph[ed_ab.id];
 
-                cerr << "Connected node " << ed_ab.id << " has " << b.neighbors.size() << " emanating edges." << endl;
+                //cerr << "Connected node " << ed_ab.id << " has " << b.neighbors.size() << " emanating edges." << endl;
 
                 /* perform S transform */
                 if(id_b != s && id_b != t &&
@@ -224,6 +292,8 @@ void simp_iter(map<int,node> &graph, int s, int t, bool ydelta)
 
                     /* node B becomes an orphan node */
                     dump_dot(graph);
+
+                    progress = true;
                 }
 
                 /* Don't mark if already visited */
@@ -239,13 +309,49 @@ void simp_iter(map<int,node> &graph, int s, int t, bool ydelta)
             if(ydelta)
             {
                 /* Try the Y->delta transform */
-                if(is_ynode(a))
+                if(id_a != s && id_a != t && is_ynode(a))
                 {
                     cerr << "Performing Y-delta transform on node " << id_a << endl;
 
                     do_ydelta(graph, id_a);
 
                     dump_dot(graph);
+                    progress = true;
+                }
+            }
+
+            if(deltay)
+            {
+                /* Try the delta-Y transform (this is the inverse of
+                 * Y-delta, so we must be careful about enabling
+                 * it). */
+
+                /* Look for any pair of nodes that are directly
+                 * connected (only one edge between them). We don't
+                 * have to worry about multiple adjacent edges because
+                 * P-transforms are done earlier. */
+                for(int i = 0; i < a.neighbors.size(); i++)
+                {
+                    for(int j = 0; j < a.neighbors.size(); j++)
+                    {
+                        if(i == j)
+                            continue;
+
+                        int id_b = a.neighbors[i].id;
+                        int id_c = a.neighbors[j].id;
+
+                        node &b = graph[id_b];
+                        if(find_edge(b, id_c) != b.neighbors.end() &&
+                           count_edges(b, id_c) == 1)
+                        {
+                            cerr << "Performing delta-Y transform on " << id_a << ", " << id_b << ", " << id_c << endl;
+
+                            do_deltay(graph, id_a, id_b, id_c);
+
+                            dump_dot(graph);
+                            progress = true;
+                        }
+                    }
                 }
             }
 
@@ -257,6 +363,8 @@ void simp_iter(map<int,node> &graph, int s, int t, bool ydelta)
             i = next;
         }
     }
+
+    return progress;
 }
 
 /* source, sink */
@@ -267,7 +375,7 @@ void simp_graph(map<int,node> &graph, int s, int t)
     while(!is_done(graph, s, t))
     {
         /* iterate over nodes in a breadth-first fashion */
-        simp_iter(graph, s, t, true);
+        simp_iter(graph, s, t, true, true);
     }
 }
 
@@ -299,4 +407,6 @@ int main()
     }
 
     simp_graph(graph, s, t);
+
+    cerr << "Equivalent resistance: " << graph[s].neighbors[0].weight << endl;
 }

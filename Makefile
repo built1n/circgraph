@@ -4,7 +4,7 @@ CXXFLAGS=$(CFLAGS)
 all: genrand circgraph Makefile
 genrand: genrand.o
 circgraph: main.o
-	$(CXX) -o $@ $< $(CFLAGS)
+	$(CXX) -o $@ $< $(CXXFLAGS)
 
 clean:
 	rm -f genrand circgraph *.o

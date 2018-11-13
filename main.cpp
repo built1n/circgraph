@@ -12,6 +12,7 @@
  * KIND, either express or implied.
  */
 
+#include <cstring>
 #include <iostream>
 #include <map>
 #include <queue>
@@ -31,6 +32,9 @@ struct node {
     string name;
     vector<edge> neighbors;
 };
+
+/* command-line options */
+bool dumponly = false, dumponprogress = false, verbose = false, dumpfinal = false, capacitance = false, quiet = false;
 
 vector<edge>::iterator find_edge(node &n, int id)
 {
@@ -64,35 +68,65 @@ bool is_one_double_edge(map<int, node> graph, int s, int t)
 bool is_ynode(map<int, node> &graph, int id)
 {
     node &n = graph[id];
-    return n.neighbors.size() == 3 &&
+    bool ret = n.neighbors.size() == 3 &&
         n.neighbors[0].id != n.neighbors[1].id &&
         n.neighbors[1].id != n.neighbors[2].id &&
         n.neighbors[0].id != n.neighbors[2].id &&
         is_doubly_connected(graph, id, n.neighbors[0].id) &&
         is_doubly_connected(graph, id, n.neighbors[1].id) &&
         is_doubly_connected(graph, id, n.neighbors[2].id);
+
+#if 0
+    if(ret)
+    {
+        /* none of the points of the Y may be sources/sinks */
+        for(int i = 0; i < 3; i++)
+            ret &= n.neighbors[i].id != s && n.neighbors[i].id != t;
+    }
+#endif
+
+    return ret;
 }
 
-double combine_s(double a, double b)
+double sum(double a, double b)
 {
-    /* change for capacitance */
     return a + b;
 }
 
-double combine_p(double a, double b)
+double harm_sum(double a, double b)
 {
     return 1 / ( 1 / a + 1 / b );
 }
 
-double combine_ydelta(double adj1, double adj2, double opp)
+double combine_R_ydelta(double adj1, double adj2, double opp)
 {
     double p = adj1 * adj2 + adj1 * opp + adj2 * opp;
     return p / opp;
 }
 
-double combine_deltay(double adj1, double adj2, double opp)
+double combine_R_deltay(double adj1, double adj2, double opp)
 {
     return adj1 * adj2 / ( adj1 + adj2 + opp );
+}
+
+double combine_s(double a, double b)
+{
+    return capacitance ? harm_sum(a, b) : sum(a, b);
+}
+
+double combine_p(double a, double b)
+{
+    return !capacitance ? harm_sum(a, b) : sum(a, b);
+}
+
+double combine_ydelta(double adj1, double adj2, double opp)
+{
+    return capacitance ? combine_R_deltay(adj1, adj2, opp) : combine_R_ydelta(adj1, adj2, opp);
+}
+
+double combine_deltay(double adj1, double adj2, double opp)
+{
+    return !capacitance ? combine_R_deltay(adj1, adj2, opp) : combine_R_ydelta(adj1, adj2, opp);
 }
 
 void dump_graph(map<int, node> graph)
@@ -107,9 +141,15 @@ void dump_graph(map<int, node> graph)
     }
 }
 
+/* set by main() to allow highlighting */
+int dump_source = -1, dump_sink = -1;
+
 void dump_dot(map<int, node> graph)
 {
     cout << "graph a {" << endl;
+    cout << "splines = ortho" << endl;
+    cout << dump_source << " [style=filled, fillcolor=green]" << endl;
+    cout << dump_sink << " [style=filled, fillcolor=red]" << endl;
     for(map<int, node>::iterator it = graph.begin(); it != graph.end(); it++)
     {
         //cerr << "Node " << it->first << ": ";
@@ -117,8 +157,11 @@ void dump_dot(map<int, node> graph)
         for(vector<edge>::iterator j = e.neighbors.begin(); j != e.neighbors.end(); j++)
         {
             //cout << graph[it->first].name << " -> " <<  graph[j->id].name << " [label=\"" << j->weight << "\"];" << endl;
-            if(is_doubly_connected(graph, it->first, j->id))
-                cout << it->first << " -- " << j->id << " [label=\"" << j->weight << "\"];" << endl;
+            //if(is_doubly_connected(graph, it->first, j->id))
+            if(j->id > it->first)
+            {
+                cout << it->first << " -- " << j->id << " [xlabel=\"" << j->weight << "\"];" << endl;
+            }
         }
         //cerr << endl;
     }
@@ -242,7 +285,8 @@ bool do_p_transforms(map<int, node> &graph, int node_id, int other_node = -1)
             if(i->id == j->id &&
                (other_node < 0 || other_node == i->id))
             {
-                cerr << "Performing P-transform on duplicate " << node_id << "-" << i->id << " edges." << endl;
+                if(verbose)
+                    cerr << "Performing P-transform on duplicate " << node_id << "-" << i->id << " edges." << endl;
 
                 /* remove edge k */
                 double new_weight = combine_p(i->weight, j->weight);
@@ -255,7 +299,7 @@ bool do_p_transforms(map<int, node> &graph, int node_id, int other_node = -1)
                 /* recurse to handle the opposite direction */
                 do_p_transforms(graph, i->id, node_id);
 
-                if(other_node < 0)
+                if(other_node < 0 && dumponprogress)
                     dump_dot(graph);
 
                 progress = true;
@@ -286,10 +330,8 @@ pair<bool, int> simp_iter(map<int,node> &graph, int s, int t, bool ydelta, bool 
             int id_a = *i;
             node &a = graph[id_a];
 
-            cerr << "Visiting node " << id_a << endl;
-
-            if(id_a == t)
-                t_visited++;
+            //if(verbose)
+            //    cerr << "Visiting node " << id_a << endl;
 
             vector<edge> &neighbors = a.neighbors;
 
@@ -302,10 +344,14 @@ pair<bool, int> simp_iter(map<int,node> &graph, int s, int t, bool ydelta, bool 
                 edge &ed_ab = *j;
                 int id_b = ed_ab.id;
 
+                if(id_b == t)
+                    t_visited++;
+
                 /* get the connected node */
                 node &b = graph[ed_ab.id];
 
-                cerr << "Connected node " << ed_ab.id << " has " << b.neighbors.size() << " emanating edges." << endl;
+                //if(verbose)
+                    //cerr << "Connected node " << ed_ab.id << " has " << b.neighbors.size() << " emanating edges." << endl;
 
                 /* perform S transform */
                 if(id_b != s && id_b != t &&
@@ -316,30 +362,31 @@ pair<bool, int> simp_iter(map<int,node> &graph, int s, int t, bool ydelta, bool 
                     edge &ed_bc = b.neighbors[0].id == id_a ? b.neighbors[1] : b.neighbors[0];
                     int id_c = ed_bc.id;
 
-                    if(is_doubly_connected(graph, id_b, id_c))
-                    {
+                    if(verbose)
                         cerr << "Performing S-transform on edges " << id_a << "-" << id_b << "-" << id_c << endl;
 
-                        /* note that we have to do the replacement on both
-                         * nodes, because edges are directed */
-                        double new_weight = combine_s(ed_ab.weight, ed_bc.weight);
+                    /* note that we have to do the replacement on both
+                     * nodes, because edges are directed */
+                    double new_weight = combine_s(ed_ab.weight, ed_bc.weight);
 
-                        ed_ab.id = id_c;
-                        ed_ab.weight = new_weight;
+                    ed_ab.id = id_c;
+                    ed_ab.weight = new_weight;
 
-                        node &c = graph[ed_bc.id];
+                    node &c = graph[ed_bc.id];
 
-                        /* find the edge that goes to node b (with id_b) */
-                        edge &ed_cb = *find_edge(c, id_b);
+                    /* find the edge that goes to node b (with id_b) */
+                    edge &ed_cb = *find_edge(c, id_b);
 
-                        ed_cb.id = id_a;
-                        ed_cb.weight = new_weight;
+                    ed_cb.id = id_a;
+                    ed_cb.weight = new_weight;
 
-                        /* node B becomes an orphan node */
+                    b.neighbors.clear();
+
+                    /* node B becomes an orphan node */
+                    if(dumponprogress)
                         dump_dot(graph);
 
-                        progress = true;
-                    }
+                    progress = true;
                 }
 
                 /* Don't mark if already visited */
@@ -357,11 +404,13 @@ pair<bool, int> simp_iter(map<int,node> &graph, int s, int t, bool ydelta, bool 
                 /* Try the Y->delta transform */
                 if(id_a != s && id_a != t && is_ynode(graph, id_a))
                 {
-                    cerr << "Performing Y-delta transform on node " << id_a << endl;
+                    if(verbose)
+                        cerr << "Performing Y-delta transform on node " << id_a << endl;
 
                     do_ydelta(graph, id_a);
 
-                    dump_dot(graph);
+                    if(dumponprogress)
+                        dump_dot(graph);
                     progress = true;
                 }
             }
@@ -390,11 +439,13 @@ pair<bool, int> simp_iter(map<int,node> &graph, int s, int t, bool ydelta, bool 
                         if(is_doubly_connected(graph, id_b, id_c) &&
                            count_edges(b, id_c) == 1)
                         {
-                            cerr << "Performing delta-Y transform on " << id_a << ", " << id_b << ", " << id_c << endl;
+                            if(verbose)
+                                cerr << "Performing delta-Y transform on " << id_a << ", " << id_b << ", " << id_c << endl;
 
                             do_deltay(graph, id_a, id_b, id_c);
 
-                            dump_dot(graph);
+                            if(dumponprogress)
+                                dump_dot(graph);
                             progress = true;
                         }
                     }
@@ -421,20 +472,30 @@ double simp_graph(map<int,node> &graph, int s, int t)
     /* Need to refine this termination condition. There must be
      * exactly one path between s and t... the current condition isn't
      * sufficient. */
-
-    while(!(is_one_double_edge(graph, s,t) && t_visited == 1))
+    while(!(is_one_double_edge(graph, s, t) && t_visited == 1))
     {
         /* iterate over nodes in a breadth-first fashion */
         pair<bool, int> ret = simp_iter(graph, s, t, true, false);
         t_visited = ret.second;
-        if(!ret.first)
+
+        bool progress = ret.first;
+
+        if(!progress)
         {
-            cerr << "Making no progress, saw t " << t_visited << " times." << endl;
-            return 0;
+            if(verbose)
+                cerr << "Making no progress, saw t " << t_visited << " times. Giving up." << endl;
+            break;
         }
     }
 
-    return graph[s].neighbors[0].weight;
+    vector<edge>::iterator e = find_edge(graph[s], t);
+
+    if(e == graph[s].neighbors.end())
+    {
+        cerr << "Couldn't simplify. Is graph connected?" << endl;
+        return 0;
+    }
+    return e->weight;
 }
 
 int get_node_id(map<string, int> &names, string name, int &counter)
@@ -446,8 +507,42 @@ int get_node_id(map<string, int> &names, string name, int &counter)
         return it->second;
 }
 
-int main()
+void print_usage(const char *name)
 {
+    cout << "Usage: " << name << " [OPTION]..." << endl;
+    cout << "Calculate equivalent resistance/capacitance of a circuit." << endl;
+    cout << " -C                 treat graph edges as capacitors (resistors by default)" << endl;
+    cout << " -d, --dump         dump graph in DOT format and exit" << endl;
+    cout << " -f, --final        print simplified graph in DOT format before result" << endl;
+    cout << " -p, --progress     print intermediate graphs in DOT format" << endl;
+    cout << " -q, --quiet        don't dump graphs" << endl;
+    cout << " -v, --verbose      print lots of debug output" << endl;
+    cout << " -h, --help         print this help and exit" << endl;
+}
+
+int main(int argc, const char *argv[])
+{
+    for(int i = 1; i < argc; i++)
+    {
+        if(!strcmp(argv[i], "-d") || !strcmp(argv[i], "--dump"))
+            dumponly = true;
+        else if(!strcmp(argv[i], "-p") || !strcmp(argv[i], "--progress"))
+            dumponprogress = true;
+        else if(!strcmp(argv[i], "-f") || !strcmp(argv[i], "--final"))
+            dumpfinal = true;
+        else if(!strcmp(argv[i], "-v") || !strcmp(argv[i], "--verbose"))
+            verbose = true;
+        else if(!strcmp(argv[i], "-q") || !strcmp(argv[i], "--quiet"))
+            quiet = true;
+        else if(!strcmp(argv[i], "-C"))
+            capacitance = true;
+        else if(!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help"))
+        {
+            print_usage(argv[0]);
+            return 1;
+        }
+    }
+
     /* construct graph from adjacency list */
     map<int, node> graph;
     string line;
@@ -458,7 +553,8 @@ int main()
     stringstream ss(line);
     ss >> s >> t;
 
-    cerr << "Source and sink are " << s << ", " << t << endl;
+    if(verbose)
+        cerr << "Source and sink are " << s << ", " << t << endl;
 
     int id_counter = 1;
 
@@ -487,12 +583,19 @@ int main()
     }
 
     int id_s, id_t;
-    id_s = names.at(s);
-    id_t = names.at(t);
+    dump_source = id_s = names.at(s);
+    dump_sink = id_t = names.at(t);
 
-    dump_dot(graph);
+    if(!quiet)
+        dump_dot(graph);
+
+    if(dumponly)
+        return 0;
 
     double eq = simp_graph(graph, id_s, id_t);
 
-    cerr << "Equivalent resistance: " << eq << endl;
+    if(dumpfinal && !dumponprogress && !quiet)
+        dump_dot(graph);
+
+    cerr << "Equivalent " << (capacitance ? "capacitance" : "resistance") << ": " << eq << endl;
 }

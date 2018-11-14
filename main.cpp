@@ -527,10 +527,10 @@ void print_usage(const char *name)
     cout << "Usage: " << name << " [OPTION]..." << endl;
     cout << "Calculate equivalent resistance/capacitance of a circuit." << endl;
     cout << " -C                     treat graph edges as capacitors (resistors by default)" << endl;
-    cout << " -d, --dump             dump graph in DOT format and exit" << endl;
-    cout << " -f, --final            print simplified graph in DOT format before result" << endl;
+    cout << " -d, --dump             dump graph and exit" << endl;
+    cout << " -f, --final            dump simplified graph before result" << endl;
     cout << " -i, --internal         use internal format (suitable for re-entry) when dumping graphs" << endl;
-    cout << " -p, --progress         print intermediate graphs in DOT format" << endl;
+    cout << " -p, --progress         dump intermediate graphs" << endl;
     cout << " -q, --quiet            don't dump graphs" << endl;
     cout << " -v, --verbose          print lots of debug output" << endl;
     cout << " -h, --help             print this help and exit" << endl;

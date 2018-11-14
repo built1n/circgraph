@@ -34,7 +34,7 @@ struct node {
 };
 
 /* command-line options */
-bool dumponly = false, dumponprogress = false, verbose = false, dumpfinal = false, capacitance = false, quiet = false;
+bool dumponly = false, dumponprogress = false, verbose = false, dumpfinal = false, capacitance = false, quiet = false, dot_format = true;
 
 vector<edge>::iterator find_edge(node &n, int id)
 {
@@ -129,27 +129,31 @@ double combine_deltay(double adj1, double adj2, double opp)
     return !capacitance ? combine_R_deltay(adj1, adj2, opp) : combine_R_ydelta(adj1, adj2, opp);
 }
 
-void dump_graph(map<int, node> graph)
-{
-    for(map<int, node>::iterator it = graph.begin(); it != graph.end(); it++)
-    {
-        cerr << "Node " << it->first << ": ";
-        struct node &e = it->second;
-        for(vector<edge>::iterator j = e.neighbors.begin(); j != e.neighbors.end(); j++)
-            cerr << j->id << " ";
-        cerr << endl;
-    }
-}
-
 /* set by main() to allow highlighting */
 int dump_source = -1, dump_sink = -1;
+
+void dump_internal(map<int, node> graph)
+{
+    cout << graph[dump_source].name << " " << graph[dump_sink].name << endl;
+    for(map<int, node>::iterator it = graph.begin(); it != graph.end(); it++)
+    {
+        struct node &e = it->second;
+        for(vector<edge>::iterator j = e.neighbors.begin(); j != e.neighbors.end(); j++)
+        {
+            if(j->id > it->first)
+            {
+                cout << graph[it->first].name << " " << graph[j->id].name << " " << j->weight << endl;
+            }
+        }
+    }
+}
 
 void dump_dot(map<int, node> graph)
 {
     cout << "graph a {" << endl;
     cout << "splines = ortho" << endl;
-    cout << dump_source << " [style=filled, fillcolor=green]" << endl;
-    cout << dump_sink << " [style=filled, fillcolor=red]" << endl;
+    cout << graph[dump_source].name << " [style=filled, fillcolor=green]" << endl;
+    cout << graph[dump_sink].name << " [style=filled, fillcolor=red]" << endl;
     for(map<int, node>::iterator it = graph.begin(); it != graph.end(); it++)
     {
         //cerr << "Node " << it->first << ": ";
@@ -160,12 +164,20 @@ void dump_dot(map<int, node> graph)
             //if(is_doubly_connected(graph, it->first, j->id))
             if(j->id > it->first)
             {
-                cout << it->first << " -- " << j->id << " [xlabel=\"" << j->weight << "\"];" << endl;
+                cout << graph[it->first].name << " -- " << graph[j->id].name << " [xlabel=\"" << j->weight << "\"];" << endl;
             }
         }
         //cerr << endl;
     }
     cout << "}" << endl;
+}
+
+void dump(map<int, node> graph)
+{
+    if(dot_format)
+        dump_dot(graph);
+    else
+        dump_internal(graph);
 }
 
 void insert_edge(map<int, node> &graph, int id_a, int id_b, double weight)
@@ -257,7 +269,10 @@ void do_deltay(map<int, node> &graph, int id_a, int id_b, int id_c)
     int id_d = graph.rbegin()->first + 1;
 
     insert_node(graph, id_d);
-    //graph[id_d].name = "Ynode";
+
+    static int ynode_counter = 1;
+
+    graph[id_d].name = "Ynode_" + to_string(ynode_counter++);
 
     insert_edge(graph, id_a, id_d, w1);
     insert_edge(graph, id_b, id_d, w2);
@@ -300,7 +315,7 @@ bool do_p_transforms(map<int, node> &graph, int node_id, int other_node = -1)
                 do_p_transforms(graph, i->id, node_id);
 
                 if(other_node < 0 && dumponprogress)
-                    dump_dot(graph);
+                    dump(graph);
 
                 progress = true;
             }
@@ -384,7 +399,7 @@ pair<bool, int> simp_iter(map<int,node> &graph, int s, int t, bool ydelta, bool 
 
                     /* node B becomes an orphan node */
                     if(dumponprogress)
-                        dump_dot(graph);
+                        dump(graph);
 
                     progress = true;
                 }
@@ -410,7 +425,7 @@ pair<bool, int> simp_iter(map<int,node> &graph, int s, int t, bool ydelta, bool 
                     do_ydelta(graph, id_a);
 
                     if(dumponprogress)
-                        dump_dot(graph);
+                        dump(graph);
                     progress = true;
                 }
             }
@@ -445,7 +460,7 @@ pair<bool, int> simp_iter(map<int,node> &graph, int s, int t, bool ydelta, bool 
                             do_deltay(graph, id_a, id_b, id_c);
 
                             if(dumponprogress)
-                                dump_dot(graph);
+                                dump(graph);
                             progress = true;
                         }
                     }
@@ -511,13 +526,14 @@ void print_usage(const char *name)
 {
     cout << "Usage: " << name << " [OPTION]..." << endl;
     cout << "Calculate equivalent resistance/capacitance of a circuit." << endl;
-    cout << " -C                 treat graph edges as capacitors (resistors by default)" << endl;
-    cout << " -d, --dump         dump graph in DOT format and exit" << endl;
-    cout << " -f, --final        print simplified graph in DOT format before result" << endl;
-    cout << " -p, --progress     print intermediate graphs in DOT format" << endl;
-    cout << " -q, --quiet        don't dump graphs" << endl;
-    cout << " -v, --verbose      print lots of debug output" << endl;
-    cout << " -h, --help         print this help and exit" << endl;
+    cout << " -C                     treat graph edges as capacitors (resistors by default)" << endl;
+    cout << " -d, --dump             dump graph in DOT format and exit" << endl;
+    cout << " -f, --final            print simplified graph in DOT format before result" << endl;
+    cout << " -i, --internal         use internal format (suitable for re-entry) when dumping graphs" << endl;
+    cout << " -p, --progress         print intermediate graphs in DOT format" << endl;
+    cout << " -q, --quiet            don't dump graphs" << endl;
+    cout << " -v, --verbose          print lots of debug output" << endl;
+    cout << " -h, --help             print this help and exit" << endl;
 }
 
 int main(int argc, const char *argv[])
@@ -530,6 +546,8 @@ int main(int argc, const char *argv[])
             dumponprogress = true;
         else if(!strcmp(argv[i], "-f") || !strcmp(argv[i], "--final"))
             dumpfinal = true;
+        else if(!strcmp(argv[i], "-i") || !strcmp(argv[i], "--internal"))
+            dot_format = false;
         else if(!strcmp(argv[i], "-v") || !strcmp(argv[i], "--verbose"))
             verbose = true;
         else if(!strcmp(argv[i], "-q") || !strcmp(argv[i], "--quiet"))
@@ -587,7 +605,7 @@ int main(int argc, const char *argv[])
     dump_sink = id_t = names.at(t);
 
     if(!quiet)
-        dump_dot(graph);
+        dump(graph);
 
     if(dumponly)
         return 0;
@@ -595,7 +613,7 @@ int main(int argc, const char *argv[])
     double eq = simp_graph(graph, id_s, id_t);
 
     if(dumpfinal && !dumponprogress && !quiet)
-        dump_dot(graph);
+        dump(graph);
 
     cerr << "Equivalent " << (capacitance ? "capacitance" : "resistance") << ": " << eq << endl;
 }
